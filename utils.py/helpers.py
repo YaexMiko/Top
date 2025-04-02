@@ -1,6 +1,6 @@
 import html
 from datetime import datetime
-from telegram import Update, Bot
+from telegram import Bot
 from telegram.constants import ParseMode
 
 def escape_markdown(text):
