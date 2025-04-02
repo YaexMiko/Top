@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 from telegram.constants import ParseMode
 from config import API_ID, API_HASH, BOT_TOKEN, LOG_CHANNEL_ID
-from utils.helpers import escape_markdown, get_correct_username, log_to_channel
+from .utils.helpers import escape_markdown, get_correct_username, log_to_channel
 
 # --- Link Extractor Module (Pyrogram) ---
 user_sessions = {}
