@@ -1,8 +1,8 @@
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import asyncio
 import html
+import re
 from datetime import datetime
 from pyrogram import Client, filters
 from pyrogram.types import Message, MessageEntity
@@ -17,7 +17,10 @@ from telegram.ext import (
 )
 from telegram.constants import ParseMode
 from config import API_ID, API_HASH, BOT_TOKEN, LOG_CHANNEL_ID
-from .utils.helpers import escape_markdown, get_correct_username, log_to_channel
+from utils.helpers import escape_markdown, get_correct_username, log_to_channel, transform_mpd_links
+
+# Add project root to Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # --- Link Extractor Module (Pyrogram) ---
 user_sessions = {}
@@ -87,16 +90,6 @@ async def setup_link_extractor(client: Client):
 
 # --- PW Link Changer Module ---
 ASK_FOR_FILE, ASK_FOR_TOKEN = range(2)
-
-def transform_mpd_links(content, token):
-    mpd_links = re.findall(r"(https://[a-zA-Z0-9.-]+/[\w-]+/master\.mpd)", content)
-    for original_link in mpd_links:
-        video_id_match = re.search(r"https://[a-zA-Z0-9.-]+/([\w-]+)/master\.mpd", original_link)
-        if video_id_match:
-            video_id = video_id_match.group(1)
-            new_link = f"https://madxabhi-pw.onrender.com/{video_id}/master.m3u8?token={token}"
-            content = content.replace(original_link, new_link)
-    return content
 
 async def pw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
@@ -328,7 +321,22 @@ async def generate_html(update: Update, user_id: int) -> None:
           --matrix-green: #0f0;
         }}
 
-        /* ... (rest of the CSS styles from the original txt_to_html.py) ... */
+        body {{
+          margin: 0;
+          padding: 0;
+          font-family: 'Orbitron', 'Rajdhani', sans-serif;
+          background-color: var(--deep-black);
+          color: var(--light-gray);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          min-height: 100vh;
+          flex-direction: column;
+          overflow-x: hidden;
+          position: relative;
+        }}
+
+        /* ... (rest of your CSS styles) ... */
     </style>
 </head>
 <body>
@@ -358,7 +366,51 @@ async def generate_html(update: Update, user_id: int) -> None:
     <button class="back-to-top" onclick="scrollToTop()">⬆️</button>
 
     <script>
-        /* ... (rest of the JavaScript from the original txt_to_html.py) ... */
+        // Back to Top Button functionality
+        const backToTopBtn = document.querySelector('.back-to-top');
+
+        window.addEventListener('scroll', () => {{
+          backToTopBtn.style.display = window.scrollY > 300 ? 'block' : 'none';
+        }});
+
+        function scrollToTop() {{
+          window.scrollTo({{ top: 0, behavior: 'smooth' }});
+        }}
+
+        // Japanese Kanji Rain Animation
+        const kanjiCharacters = ['侍', '忍', '龍', '鬼', '刀', '影', '闇', '光', '電', '夢', '愛', '戦', '死', '生', '風', '火', '水', '土', '空', '心'];
+        const kanjiContainer = document.getElementById('kanjiRain');
+        const kanjiCount = 50;
+
+        function createKanji() {{
+          const kanji = document.createElement('div');
+          kanji.className = 'kanji';
+          kanji.textContent = kanjiCharacters[Math.floor(Math.random() * kanjiCharacters.length)];
+          kanji.style.left = Math.random() * 100 + 'vw';
+          kanji.style.animationDuration = (Math.random() * 5 + 3) + 's';
+          kanji.style.opacity = Math.random() * 0.5 + 0.1;
+          kanji.style.fontSize = (Math.random() * 10 + 16) + 'px';
+          kanji.style.zIndex = -1;
+          kanjiContainer.appendChild(kanji);
+          
+          setTimeout(() => {{
+            kanji.remove();
+          }}, 8000);
+        }}
+
+        // Initialize kanji rain  
+        function initKanjiRain() {{
+          for (let i = 0; i < kanjiCount; i++) {{
+            setTimeout(createKanji, i * 200);
+          }}
+          setInterval(createKanji, 300);
+        }}
+
+        // Initialize everything when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {{
+          initKanjiRain();
+          backToTopBtn.style.display = 'none';
+        }});
     </script>
 </body>
 </html>"""
