@@ -1,0 +1,3 @@
+python-telegram-bot
+pyrogram
+python-dotenv
