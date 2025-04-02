@@ -31,7 +31,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('bot.log'),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -46,11 +50,14 @@ async def shutdown(signal, loop):
     loop.stop()
 
 def add_signal_handlers():
-    loop = asyncio.get_running_loop()
-    for s in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(
-            s,
-            lambda s=s: asyncio.create_task(shutdown(s, loop)))
+    try:
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(
+                sig,
+                lambda s=sig: asyncio.create_task(shutdown(s, loop)))
+    except RuntimeError:
+        logger.warning("Could not add signal handlers - not running in main thread")
 
 # --- Link Extractor Module (Pyrogram) ---
 user_sessions = {}
@@ -61,7 +68,6 @@ async def setup_link_extractor(client: Client):
         try:
             user_id = get_safe_user_id(message)
             if user_id is None:
-                await message.reply_text("Error: Could not identify sender")
                 return
 
             if user_id in user_sessions:
@@ -104,11 +110,7 @@ async def setup_link_extractor(client: Client):
     async def stop_collecting(client: Client, message: Message):
         try:
             user_id = get_safe_user_id(message)
-            if user_id is None:
-                await message.reply_text("Error: Could not identify sender")
-                return
-
-            if user_id not in user_sessions:
+            if user_id is None or user_id not in user_sessions:
                 await message.reply_text("You're not in a session. Use /extract_txt to start.")
                 return
             
@@ -151,6 +153,10 @@ async def pw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def pw_handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        if not update.message.document:
+            await update.message.reply_text("Please send a TXT file")
+            return ASK_FOR_FILE
+
         file = await update.message.document.get_file()
         original_filename = update.message.document.file_name
         await file.download_to_drive(original_filename)
@@ -169,32 +175,34 @@ async def pw_handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def pw_handle_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        token = update.message.text
-        original_filename = context.user_data["original_filename"]
+        token = update.message.text.strip()
+        if not token:
+            await update.message.reply_text("Please enter a valid token")
+            return ASK_FOR_TOKEN
+
+        original_filename = context.user_data.get("original_filename")
+        if not original_filename or not os.path.exists(original_filename):
+            await update.message.reply_text("File not found. Please start over.")
+            return ConversationHandler.END
 
         with open(original_filename, "r") as file:
             content = file.read()
 
         transformed_content = transform_mpd_links(content, token)
+        new_filename = f"transformed_{original_filename}"
 
-        new_filename = f"_ @ItsNomis _{original_filename}"
         with open(new_filename, "w") as file:
             file.write(transformed_content)
 
         with open(new_filename, "rb") as file:
             await update.message.reply_document(
                 document=file,
-                caption="📄 Here is the final TXT file\n\n👨‍💻 Done by -- @Pwlinkcangerbot",
+                caption="📄 Here is your transformed file",
                 parse_mode=ParseMode.MARKDOWN_V2
             )
 
         await log_to_channel(context.bot, update.message.from_user, "📄 Transformed File Sent", new_filename)
-        await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=f"User's Token:\n```\n{token}\n```",
-            parse_mode=ParseMode.MARKDOWN_V2
-        )
-
+        
         os.remove(original_filename)
         os.remove(new_filename)
         return ConversationHandler.END
@@ -587,23 +595,10 @@ async def main():
     ptb_application = None
     
     try:
-        # Initialize clients
-        pyro_client = Client(
-            "my_bot",
-            api_id=API_ID,
-            api_hash=API_HASH,
-            bot_token=BOT_TOKEN
-        )
-        
+        # Initialize PTB first
         ptb_application = Application.builder().token(BOT_TOKEN).build()
         
-        # Set up signal handlers
-        add_signal_handlers()
-        
-        # Set up all modules
-        await setup_link_extractor(pyro_client)
-        
-        # PW Link Changer
+        # Set up PTB handlers
         pw_conv_handler = ConversationHandler(
             entry_points=[CommandHandler("pw", pw_start)],
             states={
@@ -614,7 +609,6 @@ async def main():
         )
         ptb_application.add_handler(pw_conv_handler)
         
-        # TXT to HTML
         html_conv_handler = ConversationHandler(
             entry_points=[CommandHandler("html", html_start)],
             states={
@@ -634,40 +628,51 @@ async def main():
         )
         ptb_application.add_handler(html_conv_handler)
         
-        # Start command
         ptb_application.add_handler(CommandHandler("start", start_bot))
-        
-        # Error handler
         ptb_application.add_error_handler(error_handler)
         
-        # Start both clients
+        # Initialize Pyrogram after PTB is set up
+        pyro_client = Client(
+            "my_bot",
+            api_id=API_ID,
+            api_hash=API_HASH,
+            bot_token=BOT_TOKEN,
+            in_memory=True
+        )
+        
+        await setup_link_extractor(pyro_client)
+        
+        # Add signal handlers
+        add_signal_handlers()
+        
+        # Start Pyrogram first
         await pyro_client.start()
+        logger.info("Pyrogram client started")
+        
+        # Then start PTB with polling
         await ptb_application.initialize()
-        await ptb_application.start()
-        
-        logger.info("Bot started successfully")
-        
-        # Run forever
-        await asyncio.Event().wait()
+        await ptb_application.run_polling()
+        logger.info("PTB application started polling")
         
     except asyncio.CancelledError:
         logger.info("Main task cancelled")
     except Exception as e:
         logger.critical(f"Fatal error in main: {e}")
     finally:
+        # Cleanup in reverse order
         try:
             if ptb_application:
                 await ptb_application.stop()
                 logger.info("PTB application stopped")
         except Exception as e:
-            logger.error(f"Error stopping PTB application: {e}")
+            logger.error(f"Error stopping PTB: {e}")
             
         try:
             if pyro_client and await pyro_client.is_connected():
                 await pyro_client.stop()
                 logger.info("Pyrogram client stopped")
         except Exception as e:
-            logger.error(f"Error stopping Pyrogram client: {e}")
+            logger.error(f"Error stopping Pyrogram: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
