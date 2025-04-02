@@ -1,10 +1,20 @@
 import html
 import re
+import logging
 from datetime import datetime
 from typing import Optional, Union
 from telegram import Bot, InputFile
 from telegram.constants import ParseMode
+from pyrogram.types import Message
 from config import LOG_CHANNEL_ID
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def get_safe_user_id(message: Message) -> Optional[int]:
+    """Safely get user ID from a message, handling None cases."""
+    return message.from_user.id if message.from_user else None
 
 def escape_markdown(text: str, version: int = 2) -> str:
     """Escape special Markdown characters."""
@@ -76,7 +86,7 @@ async def log_to_channel(
         return True
         
     except Exception as e:
-        print(f"⚠️ Failed to log to channel: {e}")
+        logger.error(f"Failed to log to channel: {e}")
         return False
 
 def transform_mpd_links(content: str, token: str) -> str:
@@ -91,5 +101,5 @@ def transform_mpd_links(content: str, token: str) -> str:
                 content = content.replace(original_link, new_link)
         return content
     except re.error as e:
-        print(f"⚠️ Regex error in link transformation: {e}")
+        logger.error(f"Regex error in link transformation: {e}")
         return content
